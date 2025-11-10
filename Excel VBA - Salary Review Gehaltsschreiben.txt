@@ -1,0 +1,87 @@
+Sub MailMergeToPdfWithRegions_DocxOnlyOverall()
+    ' ------------------------------------------------------------
+    ' Makro: MailMergeToPdfWithRegions_DocxOnlyOverall
+    ' Zweck: Seriendruck mit Export als DOCX & PDF
+    '        - Dateien werden nach Region und Gebiet sortiert
+    '        - DOCX werden ausschließlich im "Gesamt"-Ordner gespeichert
+    '        - PDFs werden in den Regions-/Gebietsordnern und im "Gesamt"-Ordner abgelegt
+    '        - Dateiname: Pers.No._Nachname_Vorname_Gehaltsschreiben 2025.*
+    ' ------------------------------------------------------------
+
+    Dim masterDoc As Document, singleDoc As Document
+    Dim lastRecordNum As Long
+    Dim parentFolderPath As String, regionFolderPath As String, areaFolderPath As String, overallFolderPath As String
+    Dim regionName As String, areaNumber As String, customFileName As String
+
+    ' Benutzer wählt den Überordner aus
+    With Application.FileDialog(msoFileDialogFolderPicker)
+        .Title = "Bitte wählen Sie den Überordner für die Dokumente aus"
+        If .Show = -1 Then
+            parentFolderPath = .SelectedItems(1)
+        Else
+            MsgBox "Kein Ordner ausgewählt. Makro beendet."
+            Exit Sub
+        End If
+    End With
+
+    ' "Gesamt"-Ordner im Hauptverzeichnis erstellen
+    overallFolderPath = parentFolderPath & Application.PathSeparator & "Gesamt"
+    If Dir(overallFolderPath, vbDirectory) = "" Then MkDir overallFolderPath
+
+    Set masterDoc = ActiveDocument
+
+    ' Letzten Datensatz ermitteln
+    masterDoc.MailMerge.DataSource.ActiveRecord = wdLastRecord
+    lastRecordNum = masterDoc.MailMerge.DataSource.ActiveRecord
+    masterDoc.MailMerge.DataSource.ActiveRecord = wdFirstRecord
+
+    Do While lastRecordNum > 0
+        ' Seriendruck für aktuellen Datensatz
+        masterDoc.MailMerge.Destination = wdSendToNewDocument
+        masterDoc.MailMerge.DataSource.FirstRecord = masterDoc.MailMerge.DataSource.ActiveRecord
+        masterDoc.MailMerge.DataSource.LastRecord = masterDoc.MailMerge.DataSource.ActiveRecord
+        masterDoc.MailMerge.Execute False
+        Set singleDoc = ActiveDocument
+
+        ' Region und Gebiet auslesen
+        regionName = masterDoc.MailMerge.DataSource.DataFields("Region2").Value
+        areaNumber = masterDoc.MailMerge.DataSource.DataFields("Gebiet").Value
+
+        ' Region-Ordner erstellen
+        regionFolderPath = parentFolderPath & Application.PathSeparator & regionName
+        If Dir(regionFolderPath, vbDirectory) = "" Then MkDir regionFolderPath
+
+        ' Gebiet-Ordner innerhalb der Region erstellen
+        areaFolderPath = regionFolderPath & Application.PathSeparator & "Gebiet " & areaNumber
+        If Dir(areaFolderPath, vbDirectory) = "" Then MkDir areaFolderPath
+
+        ' Dateinamen zusammensetzen: Pers.No._Nachname_Vorname_Gehaltsschreiben 2025
+        customFileName = masterDoc.MailMerge.DataSource.DataFields("PersNo").Value & "_" & _
+                         masterDoc.MailMerge.DataSource.DataFields("Nachname").Value & "_" & _
+                         masterDoc.MailMerge.DataSource.DataFields("Vorname").Value & "_Gehaltsschreiben 2025"
+
+        ' Speichern als DOCX ausschließlich im "Gesamt"-Ordner
+        singleDoc.SaveAs2 _
+            FileName:=overallFolderPath & Application.PathSeparator & customFileName & ".docx", _
+            FileFormat:=wdFormatXMLDocument
+
+        ' Exportieren als PDF in beiden Speicherorten:
+        ' - Im Regions-/Gebietsordner
+        singleDoc.ExportAsFixedFormat _
+            OutputFileName:=areaFolderPath & Application.PathSeparator & customFileName & ".pdf", _
+            ExportFormat:=wdExportFormatPDF
+        ' - Im "Gesamt"-Ordner
+        singleDoc.ExportAsFixedFormat _
+            OutputFileName:=overallFolderPath & Application.PathSeparator & customFileName & ".pdf", _
+            ExportFormat:=wdExportFormatPDF
+
+        singleDoc.Close False
+
+        ' Nächster Datensatz oder Ende
+        If masterDoc.MailMerge.DataSource.ActiveRecord >= lastRecordNum Then
+            lastRecordNum = 0
+        Else
+            masterDoc.MailMerge.DataSource.ActiveRecord = wdNextRecord
+        End If
+    Loop
+End Sub

@@ -1,0 +1,340 @@
+Option Explicit
+
+' ------------------------------------------------------------
+' SplitByBranchAndPlate_WithFolderPicker
+' - Blatt "DKV" wird erwartet, Kopfzeile in Zeile 1
+' - Spalte B (2) = Kennzeichen
+' - Spalte AE (31) = Niederlassung
+' - Wählt am Anfang ein Ausgabe-Verzeichnis per Dialog
+' - Für jede Niederlassung wird eine Datei "Auswertung Tanken - <Name>.xlsx" erzeugt
+' - In jeder Datei: ein Blatt pro Kennzeichen, Zellformate werden übernommen
+' - In jedem Blatt wird über die kopierten Zeilen eine Excel-Tabelle (ListObject) erstellt
+' ------------------------------------------------------------
+
+' Hilfsfunktionen für sichere Dateinamen / Blatt-/Tabellenamen
+Private Function CleanFileName(s As Variant) As String
+    Dim t As String
+    t = Trim(CStr(s))
+    If Len(t) = 0 Then t = "UNBEKANNT"
+    t = Replace(t, Chr(0), "")
+    t = Replace(t, "/", "-")
+    t = Replace(t, "\", "-")
+    t = Replace(t, ":", "-")
+    t = Replace(t, "*", "-")
+    t = Replace(t, "?", "-")
+    t = Replace(t, """", "-")
+    t = Replace(t, "<", "-")
+    t = Replace(t, ">", "-")
+    t = Replace(t, "|", "-")
+    If Len(t) > 240 Then t = Left(t, 240)
+    CleanFileName = t
+End Function
+
+Private Function SafeSheetName(s As Variant) As String
+    Dim t As String
+    t = Trim(CStr(s))
+    If Len(t) = 0 Then t = "UNBEKANNT"
+    ' Ungültige Zeichen für Blattnamen: []:*?/\
+    t = Replace(t, "[", "-")
+    t = Replace(t, "]", "-")
+    t = Replace(t, ":", "-")
+    t = Replace(t, "*", "-")
+    t = Replace(t, "?", "-")
+    t = Replace(t, "/", "-")
+    t = Replace(t, "\", "-")
+    t = Replace(t, """", "-")
+    If Len(t) > 31 Then t = Left(t, 31)
+    If Len(t) = 0 Then t = "UNBEKANNT"
+    SafeSheetName = t
+End Function
+
+' Erzeugt einen gültigen Tabellen-Namen (ohne Leerzeichen, keine Sonderzeichen, mit Prefix)
+Private Function MakeTableName(branchName As Variant, plateName As Variant) As String
+    Dim raw As String
+    raw = "tbl_" & CStr(branchName) & "_" & CStr(plateName)
+    raw = Replace(raw, " ", "_")
+    raw = Replace(raw, "-", "_")
+    raw = Replace(raw, "[", "_")
+    raw = Replace(raw, "]", "_")
+    raw = Replace(raw, "/", "_")
+    raw = Replace(raw, "\", "_")
+    raw = Replace(raw, ":", "_")
+    raw = Replace(raw, "*", "_")
+    raw = Replace(raw, "?", "_")
+    raw = Replace(raw, """", "_")
+    raw = Replace(raw, "<", "_")
+    raw = Replace(raw, ">", "_")
+    raw = Replace(raw, "|", "_")
+    raw = Replace(raw, ".", "_")
+    ' Tabellenname darf nicht länger als 255 sein, aber wir kürzen konservativ
+    If Len(raw) > 64 Then raw = Left(raw, 64)
+    ' Tabellenname darf nicht mit einer Zahl anfangen -> prefix sorgt dafür
+    If Not (Left(raw, 1) Like "[A-Za-z_]") Then raw = "t" & raw
+    MakeTableName = raw
+End Function
+
+Private Function SheetExists(wb As Workbook, sName As String) As Boolean
+    On Error Resume Next
+    Dim sh As Worksheet
+    Set sh = wb.Worksheets(sName)
+    SheetExists = (Err.Number = 0)
+    On Error GoTo 0
+End Function
+
+Private Function MakeUniqueSheetName(wb As Workbook, baseName As Variant) As String
+    Dim nameTry As String
+    Dim i As Long
+    nameTry = SafeSheetName(baseName)
+    If Not SheetExists(wb, nameTry) Then
+        MakeUniqueSheetName = nameTry
+        Exit Function
+    End If
+    i = 2
+    Do
+        Dim suffix As String
+        suffix = "_" & CStr(i)
+        Dim allowedLen As Long
+        allowedLen = 31 - Len(suffix)
+        If allowedLen < 1 Then allowedLen = 1
+        nameTry = Left(SafeSheetName(baseName), allowedLen) & suffix
+        If Not SheetExists(wb, nameTry) Then
+            MakeUniqueSheetName = nameTry
+            Exit Function
+        End If
+        i = i + 1
+    Loop
+End Function
+
+' Hauptprozedur
+Sub SplitByBranchAndPlate_WithFolderPicker()
+    Const FIRST_DATA_ROW As Long = 2
+    Const COL_PLATE As Long = 2    ' B
+    Const COL_BRANCH As Long = 31  ' AE
+    Const COLS_TO_COPY As Long = 31 ' A..AE
+
+    Dim srcWB As Workbook
+    Dim srcWS As Worksheet
+    Dim lastRow As Long
+    Dim folderPath As String
+    Dim fd As FileDialog
+
+    On Error GoTo ErrHandler
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+
+    Set srcWB = ThisWorkbook
+    On Error Resume Next
+    Set srcWS = srcWB.Worksheets("DKV")
+    On Error GoTo 0
+
+    If srcWS Is Nothing Then
+        MsgBox "Tabellenblatt 'DKV' wurde nicht gefunden. Stelle sicher, dass das Blatt existiert.", vbExclamation
+        GoTo Cleanup
+    End If
+
+    ' Ordner-Auswahl Dialog
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    fd.Title = "Zielordner für die Auswertungs-Dateien wählen (Abbrechen = Ablageordner der Arbeitsmappe verwenden)"
+    fd.AllowMultiSelect = False
+
+    If fd.Show = -1 Then
+        folderPath = fd.SelectedItems(1)
+        If Right(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+    Else
+        If Len(srcWB.Path) > 0 Then
+            folderPath = srcWB.Path & "\"
+        Else
+            folderPath = Application.DefaultFilePath & "\"
+        End If
+        If MsgBox("Kein Ordner ausgewählt. Es wird der Ablageordner verwendet:" & vbCrLf & folderPath & vbCrLf & vbCrLf & "Fortfahren?", vbYesNo + vbQuestion, "Ablageordner verwenden?") = vbNo Then
+            MsgBox "Abgebrochen.", vbInformation
+            GoTo Cleanup
+        End If
+    End If
+
+    ' Bestimme letzte Zeile (Spalte A als Referenz)
+    lastRow = srcWS.Cells(srcWS.Rows.Count, 1).End(xlUp).Row
+    If lastRow < FIRST_DATA_ROW Then
+        MsgBox "Keine Daten gefunden (weniger als " & FIRST_DATA_ROW & " Zeilen).", vbExclamation
+        GoTo Cleanup
+    End If
+
+    ' Lese Daten in Array (nur zur Identifikation und Performance; wir speichern die Quellzeilennummern)
+    Dim dataArr As Variant
+    dataArr = srcWS.Range(srcWS.Cells(FIRST_DATA_ROW, 1), srcWS.Cells(lastRow, COLS_TO_COPY)).Value2
+
+    Dim rowCount As Long
+    rowCount = UBound(dataArr, 1)
+
+    ' branchDict: branch -> (platesDict)
+    ' platesDict: plate -> Collection of sourceRowNumbers (absolute in worksheet)
+    Dim branchDict As Object
+    Set branchDict = CreateObject("Scripting.Dictionary")
+
+    Dim i As Long
+    For i = 1 To rowCount
+        Dim branchKey As String
+        Dim plateKey As String
+        branchKey = Trim(CStr(dataArr(i, COL_BRANCH)))
+        If branchKey = "" Then branchKey = "UNBEKANNT"
+        plateKey = Trim(CStr(dataArr(i, COL_PLATE)))
+        If plateKey = "" Then plateKey = "UNBEKANNT"
+
+        Dim platesDict As Object
+        If Not branchDict.Exists(branchKey) Then
+            Set platesDict = CreateObject("Scripting.Dictionary")
+            branchDict.Add branchKey, platesDict
+        Else
+            Set platesDict = branchDict(branchKey)
+        End If
+
+        Dim coll As Collection
+        If Not platesDict.Exists(plateKey) Then
+            Set coll = New Collection
+            platesDict.Add plateKey, coll
+        Else
+            Set coll = platesDict(plateKey)
+        End If
+
+        ' Speichere die absolute Quellzeilennummer
+        coll.Add FIRST_DATA_ROW + (i - 1)
+    Next i
+
+    ' Für jede Niederlassung Datei erstellen
+    Dim branchName As Variant
+    For Each branchName In branchDict.Keys
+        Dim platesObj As Object
+        Set platesObj = branchDict(branchName)
+
+        ' Neue Arbeitsmappe erzeugen
+        Dim destWB As Workbook
+        Set destWB = Workbooks.Add(xlWBATWorksheet)
+
+        ' Entferne überschüssige Standardblätter, lasse wenigstens 1 Blatt
+        Do While destWB.Worksheets.Count > 1
+            destWB.Worksheets(1).Delete
+        Loop
+
+        Dim firstSheetUsed As Boolean
+        firstSheetUsed = False
+
+        Dim plateName As Variant
+        For Each plateName In platesObj.Keys
+            Dim destWS As Worksheet
+            Dim newSheetName As String
+            newSheetName = MakeUniqueSheetName(destWB, plateName)
+
+            If Not firstSheetUsed Then
+                Set destWS = destWB.Worksheets(1)
+                firstSheetUsed = True
+            Else
+                Set destWS = destWB.Worksheets.Add(After:=destWB.Worksheets(destWB.Worksheets.Count))
+            End If
+
+            ' Blattname setzen (fehlergesichert)
+            On Error Resume Next
+            destWS.Name = newSheetName
+            If Err.Number <> 0 Then
+                Err.Clear
+                destWS.Name = SafeSheetName(newSheetName)
+            End If
+            On Error GoTo 0
+
+            ' Kopfzeile (inkl. Formate) kopieren
+            srcWS.Range(srcWS.Cells(1, 1), srcWS.Cells(1, COLS_TO_COPY)).Copy Destination:=destWS.Cells(1, 1)
+
+            ' Jetzt jede Quellzeile (absolute Nummern) kopieren -> Zielzeilen ab 2
+            Dim collRows As Collection
+            Set collRows = platesObj(plateName)
+            Dim nRows As Long
+            nRows = collRows.Count
+            Dim destRow As Long
+            destRow = 2
+
+            Dim rIdx As Long
+            For rIdx = 1 To nRows
+                Dim srcRow As Long
+                srcRow = collRows(rIdx)
+                ' Kopiere ganze Zeile A..AE inklusive Formate/Formeln/Validation
+                srcWS.Range(srcWS.Cells(srcRow, 1), srcWS.Cells(srcRow, COLS_TO_COPY)).Copy Destination:=destWS.Cells(destRow, 1)
+                destRow = destRow + 1
+            Next rIdx
+
+            ' Optional: Spaltenbreiten übernehmen (kopiere Spaltenbreiten aus Quelle)
+            Dim c As Long
+            For c = 1 To COLS_TO_COPY
+                On Error Resume Next
+                destWS.Columns(c).ColumnWidth = srcWS.Columns(c).ColumnWidth
+                On Error GoTo 0
+            Next c
+
+            ' Erzeuge ListObject (Tabelle) über A1:AE<letzteZeile>
+            If nRows > 0 Then
+                Dim lastDestRow As Long
+                lastDestRow = 1 + nRows
+                Dim rngTable As Range
+                Set rngTable = destWS.Range(destWS.Cells(1, 1), destWS.Cells(lastDestRow, COLS_TO_COPY))
+
+                ' Tabelle erstellen (ohne Fehler, wenn schon vorhanden)
+                On Error Resume Next
+                Dim tb As ListObject
+                Set tb = destWS.ListObjects.Add(xlSrcRange, rngTable, , xlYes)
+                If Not tb Is Nothing Then
+                    Dim proposedName As String
+                    proposedName = MakeTableName(branchName, plateName)
+                    ' Table name darf nicht länger sein und keine Leerzeichen etc. -> safe
+                    On Error Resume Next
+                    tb.Name = proposedName
+                    If Err.Number <> 0 Then
+                        Err.Clear
+                        tb.Name = Left(proposedName, 31)
+                    End If
+                    On Error GoTo 0
+                End If
+                On Error GoTo 0
+
+                ' Optional: Standard-Tabellenformat setzen (oder der Quelle folgen)
+                On Error Resume Next
+                If Not tb Is Nothing Then
+                    tb.TableStyle = "TableStyleMedium9"
+                End If
+                On Error GoTo 0
+            End If
+
+            ' Optional: Autofit der Spalten (kann Zeit kosten)
+            On Error Resume Next
+            destWS.Columns("A:AE").AutoFit
+            On Error GoTo 0
+        Next plateName
+
+        ' Speichern unter ausgewähltem Pfad
+        Dim outFile As String
+        outFile = folderPath & "Auswertung Tanken - " & CleanFileName(branchName) & ".xlsx"
+        On Error Resume Next
+        destWB.SaveAs Filename:=outFile, FileFormat:=xlOpenXMLWorkbook
+        If Err.Number <> 0 Then
+            MsgBox "Fehler beim Speichern: " & outFile & vbCrLf & "Fehler: " & Err.Description, vbExclamation
+            Err.Clear
+        End If
+        On Error GoTo 0
+
+        destWB.Close SaveChanges:=False
+        Application.StatusBar = "Erstellt: " & outFile
+    Next branchName
+
+    Application.StatusBar = False
+    MsgBox "Fertig. Dateien wurden erstellt in: " & vbCrLf & folderPath, vbInformation
+
+Cleanup:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.DisplayAlerts = True
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Fehler: " & Err.Number & " - " & Err.Description, vbCritical
+    Resume Cleanup
+End Sub
+

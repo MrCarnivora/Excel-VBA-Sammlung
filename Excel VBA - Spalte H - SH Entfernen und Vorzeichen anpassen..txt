@@ -1,0 +1,44 @@
+Sub ConvertSollHaben()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim r As Long
+    Dim rawText As String
+    Dim numText As String
+    Dim valueNum As Double
+    Dim signFactor As Long
+    
+    ' 1. Blatt "IKK Classic" referenzieren
+    Set ws = ThisWorkbook.Worksheets("IKK Classic")
+    
+    ' 2. Letzte gefüllte Zeile in Spalte I finden
+    lastRow = ws.Cells(ws.Rows.Count, "I").End(xlUp).Row
+    
+    ' 3. Loop von I3 bis lastRow
+    For r = 3 To lastRow
+        rawText = Trim(ws.Cells(r, "I").Value)
+        If rawText <> "" Then
+            ' 4. Vorzeichen: S = Soll → -1, sonst H = +1
+            If Right(rawText, 1) = "S" Then
+                signFactor = -1
+            Else
+                signFactor = 1
+            End If
+            
+            ' 5. Nur Zahl + Trennzeichen extrahieren (letzte 2 Zeichen weghauen)
+            numText = Left(rawText, Len(rawText) - 2)
+            
+            ' 6. Direkt in Double umwandeln (lokales Format)
+            On Error Resume Next
+            valueNum = CDbl(numText) * signFactor
+            On Error GoTo 0
+            
+            ' 7. Ergebnis zurückschreiben und als Euro formatieren
+            With ws.Cells(r, "I")
+                .Value = valueNum
+                .NumberFormat = "#,##0.00 €"
+            End With
+        End If
+    Next r
+    
+    MsgBox "✅ Spalte I ist nun in € mit korrektem Vorzeichen!", vbInformation
+End Sub

@@ -1,0 +1,85 @@
+Sub MailMergeToPdfWithLineManagerFolder()
+    ' ------------------------------------------------------------
+    ' Makro: MailMergeToPdfWithLineManagerFolder
+    ' Zweck: Seriendruck mit Export als DOCX & PDF
+    '        - PDFs werden in einem Ordner abgelegt, der anhand des
+    '          in Spalte 61 (Feld "LineManager") enthaltenen Werts benannt wird.
+    '        - DOCX werden ausschließlich im "Gesamt"-Ordner gespeichert.
+    '        - Dateiname: PersNo_Nachname_Vorname_Gehaltsschreiben 2025.*
+    ' ------------------------------------------------------------
+    
+    Dim masterDoc As Document, singleDoc As Document
+    Dim lastRecordNum As Long
+    Dim parentFolderPath As String, lineManagerFolder As String, overallFolderPath As String
+    Dim lineManager As String, customFileName As String
+
+    ' Benutzer wählt den Überordner aus
+    With Application.FileDialog(msoFileDialogFolderPicker)
+        .Title = "Bitte wählen Sie den Überordner für die Dokumente aus"
+        If .Show = -1 Then
+            parentFolderPath = .SelectedItems(1)
+        Else
+            MsgBox "Kein Ordner ausgewählt. Makro beendet.", vbExclamation
+            Exit Sub
+        End If
+    End With
+
+    ' "Gesamt"-Ordner im Hauptverzeichnis erstellen
+    overallFolderPath = parentFolderPath & Application.PathSeparator & "Gesamt"
+    If Dir(overallFolderPath, vbDirectory) = "" Then MkDir overallFolderPath
+
+    Set masterDoc = ActiveDocument
+
+    ' Letzten Datensatz ermitteln und dann zum ersten wechseln
+    masterDoc.MailMerge.DataSource.ActiveRecord = wdLastRecord
+    lastRecordNum = masterDoc.MailMerge.DataSource.ActiveRecord
+    masterDoc.MailMerge.DataSource.ActiveRecord = wdFirstRecord
+
+    Do While lastRecordNum > 0
+        ' Seriendruck für den aktuellen Datensatz
+        masterDoc.MailMerge.Destination = wdSendToNewDocument
+        masterDoc.MailMerge.DataSource.FirstRecord = masterDoc.MailMerge.DataSource.ActiveRecord
+        masterDoc.MailMerge.DataSource.LastRecord = masterDoc.MailMerge.DataSource.ActiveRecord
+        masterDoc.MailMerge.Execute False
+        Set singleDoc = ActiveDocument
+
+        ' Auslesen des LineManager-Felds (Spalte 61)
+        lineManager = masterDoc.MailMerge.DataSource.DataFields(61).Value
+
+        ' Erstellen des LineManager-Ordners
+        lineManagerFolder = parentFolderPath & Application.PathSeparator & lineManager
+        If Dir(lineManagerFolder, vbDirectory) = "" Then MkDir lineManagerFolder
+
+        ' Dateinamen zusammensetzen: PersNo_Nachname_Vorname_Gehaltsschreiben 2025
+        customFileName = masterDoc.MailMerge.DataSource.DataFields(4).Value & "_" & _
+                         masterDoc.MailMerge.DataSource.DataFields(5).Value & "_" & _
+                         masterDoc.MailMerge.DataSource.DataFields(6).Value & "_PDR 2025"
+
+
+        ' Speichern als DOCX ausschließlich im "Gesamt"-Ordner
+        singleDoc.SaveAs2 _
+            FileName:=overallFolderPath & Application.PathSeparator & customFileName & ".docx", _
+            FileFormat:=wdFormatXMLDocument
+
+        ' Exportieren als PDF in beiden Speicherorten:
+        ' - Im LineManager-Ordner
+        singleDoc.ExportAsFixedFormat _
+            OutputFileName:=lineManagerFolder & Application.PathSeparator & customFileName & ".pdf", _
+            ExportFormat:=wdExportFormatPDF
+        ' - Im "Gesamt"-Ordner
+        singleDoc.ExportAsFixedFormat _
+            OutputFileName:=overallFolderPath & Application.PathSeparator & customFileName & ".pdf", _
+            ExportFormat:=wdExportFormatPDF
+
+        singleDoc.Close False
+
+        ' Nächster Datensatz oder Ende
+        If masterDoc.MailMerge.DataSource.ActiveRecord >= lastRecordNum Then
+            lastRecordNum = 0
+        Else
+            masterDoc.MailMerge.DataSource.ActiveRecord = wdNextRecord
+        End If
+    Loop
+End Sub
+
+

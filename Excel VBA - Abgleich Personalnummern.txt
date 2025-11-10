@@ -1,0 +1,152 @@
+Sub AbgleichPersonalnummern()
+
+    Dim wb1 As Workbook, wb2 As Workbook
+    Dim ws1 As Worksheet, ws2 As Worksheet
+    Dim rng1 As Range, rng2 As Range
+    Dim cell1 As Range, foundCell As Range
+    Dim logText As String
+    Dim foundCount As Long, missingDateCount As Long, invalidNumberCount As Long
+    Dim filePath As String
+    Dim logFileName As String, logFilePath As String
+    Dim fso As Object
+    Dim lastName1 As String, firstName1 As String
+    Dim lastName2 As String, firstName2 As String
+    Dim nameFoundCount As Long
+    Dim nameMissingCount As Long
+    
+    ' Initialisieren der Variablen
+    foundCount = 0
+    missingDateCount = 0
+    invalidNumberCount = 0
+    nameFoundCount = 0
+    nameMissingCount = 0
+    logText = "Log Abgleich Personalnummern" & vbCrLf & "-------------------------------------" & vbCrLf
+    
+    ' Arbeitsmappen und Arbeitsblätter definieren
+    Set wb1 = ThisWorkbook
+    Set ws1 = wb1.Sheets(1) ' Ersetze durch den tatsächlichen Namen des Arbeitsblatts
+
+    ' Benutzer wählt zweite Datei aus
+    filePath = Application.GetOpenFilename("Excel-Dateien (*.xlsx), *.xlsx", , "Bitte die zweite Datei auswählen")
+    
+    If filePath = "Falsch" Then
+        MsgBox "Keine Datei ausgewählt. Vorgang abgebrochen."
+        Exit Sub
+    End If
+    
+    ' Zweite Arbeitsmappe öffnen
+    Set wb2 = Workbooks.Open(filePath)
+    Set ws2 = wb2.Sheets(1) ' Ersetze durch den tatsächlichen Namen des Arbeitsblatts
+    
+    ' Definiere die Bereiche
+    Set rng1 = ws1.Range("B9:B" & ws1.Cells(ws1.Rows.Count, "B").End(xlUp).Row) ' Bereich der Personalnummern in wb1
+    Set rng2 = ws2.Range("A3:A" & ws2.Cells(ws2.Rows.Count, "A").End(xlUp).Row) ' Bereich der Personalnummern in wb2
+    
+    ' Schleife durch die Personalnummern in wb1
+    For Each cell1 In rng1
+        If IsNumeric(cell1.Value) Then ' Überprüfe, ob Personalnummer in wb1 vorhanden ist
+            ' Suchen der Personalnummer in wb2 (nicht case-sensitive)
+            Set foundCell = rng2.Find(What:=cell1.Value, LookIn:=xlValues, LookAt:=xlWhole, MatchCase:=False)
+            
+            If Not foundCell Is Nothing Then
+                ' Überprüfen, ob Spalte Q in wb1 bereits ein Datum enthält
+                If ws1.Cells(cell1.Row, "Q").Value = "" Then
+                    ' Datum aus Spalte D in wb2 kopieren
+                    ws1.Cells(cell1.Row, "Q").Value = ws2.Cells(foundCell.Row, "AQ").Value
+                    foundCount = foundCount + 1
+                    logText = logText & "Zeile " & cell1.Row & ": Personalnummer " & cell1.Value & " - Datum erfolgreich kopiert." & vbCrLf
+                Else
+                    ' Wenn Datum bereits vorhanden, überspringen
+                    logText = logText & "Zeile " & cell1.Row & ": Personalnummer " & cell1.Value & " - Datum bereits vorhanden, übersprungen." & vbCrLf
+                    Debug.Print "Zeile " & cell1.Row & ": Personalnummer " & cell1.Value & " - Datum bereits in Spalte Q vorhanden."
+                End If
+            Else
+                ' Wenn Personalnummer nicht gefunden wird
+                missingDateCount = missingDateCount + 1
+                logText = logText & "Zeile " & cell1.Row & ": Personalnummer " & cell1.Value & " - Nicht in zweiter Datei gefunden, übersprungen." & vbCrLf
+                Debug.Print "Zeile " & cell1.Row & ": Personalnummer " & cell1.Value & " - Nicht in zweiter Datei gefunden."
+            End If
+        Else
+            ' Wenn keine gültige Personalnummer in der Zelle steht
+            invalidNumberCount = invalidNumberCount + 1
+            logText = logText & "Zeile " & cell1.Row & ": Keine gültige Personalnummer, übersprungen." & vbCrLf
+            Debug.Print "Zeile " & cell1.Row & ": Keine gültige Personalnummer, übersprungen."
+        End If
+    Next cell1
+    
+    ' Zusammenfassung des ersten Abgleichs
+    logText = logText & vbCrLf & "Zusammenfassung des ersten Abgleichs:" & vbCrLf
+    logText = logText & "Anzahl gefundener Personalnummern: " & foundCount & vbCrLf
+    logText = logText & "Anzahl nicht gefundener Personalnummern: " & missingDateCount & vbCrLf
+    logText = logText & "Anzahl ungültiger Personalnummern: " & invalidNumberCount & vbCrLf
+    
+    ' Start des zweiten Abgleichs: Vergleich von Vor- und Nachnamen
+    logText = logText & vbCrLf & "-------------------------------------" & vbCrLf
+    logText = logText & "Zweiter Abgleich (Vor- und Nachname):" & vbCrLf
+    logText = logText & "-------------------------------------" & vbCrLf
+
+    ' Schleife für den zweiten Abgleich (Nach- und Vorname)
+    For Each cell1 In rng1
+        lastName1 = Trim(LCase(ws1.Cells(cell1.Row, "C").Value)) ' Nachname aus Spalte C
+        firstName1 = Trim(LCase(ws1.Cells(cell1.Row, "D").Value)) ' Vorname aus Spalte D
+        
+        If lastName1 <> "" And firstName1 <> "" Then
+            ' Schleife durch die Namen in der zweiten Datei
+            Dim nameMatch As Boolean
+            nameMatch = False
+            For Each foundCell In rng2
+                lastName2 = Trim(LCase(ws2.Cells(foundCell.Row, "B").Value)) ' Nachname aus Spalte B
+                firstName2 = Trim(LCase(ws2.Cells(foundCell.Row, "C").Value)) ' Vorname aus Spalte C
+                
+                ' Wenn Nachname und Vorname übereinstimmen
+                If lastName1 = lastName2 And firstName1 = firstName2 Then
+                    ' Personalnummer abgleichen, falls vorhanden
+                    If IsNumeric(cell1.Value) And cell1.Value = ws2.Cells(foundCell.Row, "A").Value Then
+                        ' Wenn Spalte Q noch kein Datum enthält
+                        If ws1.Cells(cell1.Row, "Q").Value = "" Then
+                            ws1.Cells(cell1.Row, "Q").Value = ws2.Cells(foundCell.Row, "AQ").Value
+                            nameFoundCount = nameFoundCount + 1
+                            logText = logText & "Zeile " & cell1.Row & ": Vorname '" & firstName1 & "', Nachname '" & lastName1 & "' - Datum erfolgreich kopiert." & vbCrLf
+                        Else
+                            logText = logText & "Zeile " & cell1.Row & ": Vorname '" & firstName1 & "', Nachname '" & lastName1 & "' - Datum bereits vorhanden, übersprungen." & vbCrLf
+                        End If
+                        nameMatch = True
+                        Exit For ' Wenn ein Match gefunden wurde, beende die Schleife
+                    End If
+                End If
+            Next foundCell
+            
+            ' Wenn kein Match für Vor- und Nachname gefunden wurde
+            If Not nameMatch Then
+                nameMissingCount = nameMissingCount + 1
+                logText = logText & "Zeile " & cell1.Row & ": Vorname '" & firstName1 & "', Nachname '" & lastName1 & "' - Kein vollständiges Namens-Match gefunden, übersprungen." & vbCrLf
+            End If
+        Else
+            ' Falls Vor- oder Nachname fehlt
+            logText = logText & "Zeile " & cell1.Row & ": Vor- oder Nachname fehlt, übersprungen." & vbCrLf
+        End If
+    Next cell1
+    
+    ' Zusammenfassung des zweiten Abgleichs
+    logText = logText & vbCrLf & "Zusammenfassung des zweiten Abgleichs:" & vbCrLf
+    logText = logText & "Anzahl gefundener Übereinstimmungen: " & nameFoundCount & vbCrLf
+    logText = logText & "Anzahl fehlender Übereinstimmungen: " & nameMissingCount & vbCrLf
+
+    ' Log-Datei speichern
+    logFileName = "Log_Abgleich_" & Format(Now, "YYYYMMDD_HHMMSS") & ".txt"
+    logFilePath = wb1.Path & "\" & logFileName
+    
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    With fso.CreateTextFile(logFilePath, True)
+        .WriteLine logText
+        .Close
+    End With
+    
+    ' Log in der Konsole ausgeben
+    Debug.Print logText
+
+    ' Zweite Arbeitsmappe schließen
+    wb2.Close False
+
+    ' Abschlussmeldung
+    MsgBox "Abgleich abgeschlossen. Log-Datei erstellt:

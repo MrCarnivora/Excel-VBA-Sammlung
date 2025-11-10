@@ -1,0 +1,65 @@
+Sub MarkiereUebereinstimmungen()
+    Dim wsUrsprung As Worksheet, wsVergleich As Worksheet
+    Dim letzteZeileUrsprung As Long, letzteZeileVergleich As Long
+    Dim dict As Object
+    Dim i As Long
+    Dim zelle As Range
+    Dim wbVergleich As Workbook
+    Dim dateiPfad As String
+    Dim vergleichWert As String, ursprungsWert As String
+
+    ' Setze das Arbeitsblatt der Ursprungsdatei
+    Set wsUrsprung = ThisWorkbook.Sheets("Sheet1")
+
+    ' Öffne den Dateiexplorer zum Auswählen der Vergleichsdatei
+    With Application.FileDialog(msoFileDialogFilePicker)
+        .Title = "Wähle die Vergleichsdatei aus"
+        .Filters.Clear
+        .Filters.Add "Excel-Dateien", "*.xlsx;*.xlsm;*.xls"
+        .AllowMultiSelect = False
+        If .Show = -1 Then
+            dateiPfad = .SelectedItems(1)
+        Else
+            MsgBox "Keine Datei ausgewählt. Vorgang abgebrochen.", vbExclamation
+            Exit Sub
+        End If
+    End With
+
+    ' Öffne die ausgewählte Vergleichsdatei
+    Set wbVergleich = Workbooks.Open(dateiPfad)
+    Set wsVergleich = wbVergleich.Sheets("Tabelle1") ' ggf. anpassen, falls der Blattname anders lautet
+
+    ' Bestimme die letzte Zeile in beiden Listen
+    letzteZeileUrsprung = wsUrsprung.Cells(wsUrsprung.Rows.Count, "A").End(xlUp).Row
+    letzteZeileVergleich = wsVergleich.Cells(wsVergleich.Rows.Count, "C").End(xlUp).Row
+
+    ' Dictionary zum schnellen Vergleich nutzen
+    Set dict = CreateObject("Scripting.Dictionary")
+    ' Setze den CompareMode auf Textvergleich (case-insensitive)
+    dict.CompareMode = vbTextCompare
+
+    ' Werte aus der Vergleichsliste ins Dictionary laden (ab Zeile 3 in Spalte C)
+    For i = 3 To letzteZeileVergleich
+        vergleichWert = Trim(CStr(wsVergleich.Cells(i, "C").Value))
+        If Len(vergleichWert) > 0 Then
+            dict(vergleichWert) = True
+        End If
+    Next i
+
+    ' Werte in der Ursprungsdatei prüfen und bei Übereinstimmung die Zeile orange färben (ab Zeile 2 in Spalte A)
+    For i = 2 To letzteZeileUrsprung
+        ursprungsWert = Trim(CStr(wsUrsprung.Cells(i, "A").Value))
+        If dict.exists(ursprungsWert) Then
+            ' Zeile orange färben (RGB(255,165,0) entspricht Orange)
+            wsUrsprung.Rows(i).Interior.Color = RGB(255, 165, 0)
+        End If
+    Next i
+
+    ' Speicher freigeben
+    Set dict = Nothing
+
+    ' Vergleichsdatei schließen (optional, wenn nicht mehr benötigt)
+    wbVergleich.Close SaveChanges:=False
+
+    MsgBox "Markierung abgeschlossen.", vbInformation
+End Sub

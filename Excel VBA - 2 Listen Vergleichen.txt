@@ -1,0 +1,67 @@
+Sub VergleicheUndFärbeMitDateiauswahl()
+
+    Dim ws1 As Worksheet, ws2 As Worksheet
+    Dim rng1 As Range, rng2 As Range
+    Dim cell1 As Range, cell2 As Range
+    Dim gefunden As Boolean
+    Dim dateiPfad As String
+    Dim wb2 As Workbook
+    
+    ' Arbeitsblatt in der ersten Datei festlegen
+    Set ws1 = ThisWorkbook.Sheets("Sheet1")
+    
+    ' Benutzer wählt die zweite Datei aus
+    dateiPfad = Application.GetOpenFilename("Excel-Dateien (*.xlsx;*.xlsm), *.xlsx;*.xlsm", , "Wähle die zweite Datei aus")
+    
+    ' Abbrechen, wenn keine Datei ausgewählt wurde
+    If dateiPfad = "Falsch" Then
+        MsgBox "Keine Datei ausgewählt. Abbruch!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Öffnen der zweiten Datei
+    Set wb2 = Workbooks.Open(dateiPfad)
+    
+    ' Arbeitsblatt in der zweiten Datei festlegen
+    On Error Resume Next
+    Set ws2 = wb2.Sheets("Sheet2")
+    On Error GoTo 0
+    
+    ' Überprüfen, ob das Arbeitsblatt existiert
+    If ws2 Is Nothing Then
+        MsgBox "Das Arbeitsblatt 'Sheet2' existiert nicht in der zweiten Datei.", vbCritical
+        wb2.Close SaveChanges:=False
+        Exit Sub
+    End If
+    
+    ' Bereiche definieren (ab Zeile 2 in Spalte H)
+    Set rng1 = ws1.Range("H2:H" & ws1.Cells(ws1.Rows.Count, "H").End(xlUp).Row)
+    Set rng2 = ws2.Range("H2:H" & ws2.Cells(ws2.Rows.Count, "H").End(xlUp).Row)
+    
+    ' Schleife durch alle Zellen in Spalte H von Liste 1
+    For Each cell1 In rng1
+        If Not IsEmpty(cell1.Value) Then
+            gefunden = False
+            ' Schleife durch alle Zellen in Spalte H von Liste 2
+            For Each cell2 In rng2
+                If Not IsEmpty(cell2.Value) Then
+                    ' Vergleich der Werte
+                    If cell1.Value = cell2.Value Then
+                        gefunden = True
+                        Exit For
+                    End If
+                End If
+            Next cell2
+            
+            ' Wenn gefunden, Zelle rot einfärben
+            If gefunden Then
+                cell1.Interior.Color = RGB(255, 0, 0) ' Rot einfärben
+            End If
+        End If
+    Next cell1
+    
+    ' Zweite Datei schließen
+    wb2.Close SaveChanges:=False
+    
+    MsgBox "Vergleich abgeschlossen!", vbInformation
+End Sub

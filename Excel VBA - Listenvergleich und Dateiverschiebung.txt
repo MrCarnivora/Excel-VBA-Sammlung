@@ -1,0 +1,98 @@
+Sub VergleicheUndVerschiebeDateien()
+    Dim ws1 As Worksheet, ws2 As Worksheet
+    Dim startZelle1 As Range, startZelle2 As Range
+    Dim zielOrdner As String
+    Dim dateiNamenListe1 As Variant, dateiNamenListe2 As Variant
+    Dim dateiPfadListe2 As Variant
+    Dim fso As Object
+    Dim i As Long, j As Long
+    Dim dateiGefunden As Boolean
+
+    ' Setze Arbeitsblätter
+    Set ws1 = ThisWorkbook.Sheets("Tabelle1") ' Anpassen des Blattnamens
+    Set ws2 = ThisWorkbook.Sheets("Tabelle2") ' Anpassen des Blattnamens
+
+    ' Startzellen definieren
+    Set startZelle1 = ws1.Range("H2") ' Anpassen der Startzelle
+    Set startZelle2 = ws2.Range("H2") ' Anpassen der Startzelle
+
+    ' Zielordner auswählen
+    If Not FolderPicker(zielOrdner) Then
+        MsgBox "Vorgang abgebrochen. Kein gültiger Zielordner ausgewählt.", vbCritical
+        Exit Sub
+    End If
+
+    ' Daten in Arrays laden
+    dateiNamenListe1 = GetColumnData(startZelle1)
+    dateiNamenListe2 = GetColumnData(startZelle2)
+    dateiPfadListe2 = GetColumnData(startZelle2.Offset(0, 2)) ' Spalte J relativ zu H
+
+    ' Überprüfen, ob Daten vorhanden sind
+    If IsEmpty(dateiNamenListe1) Or IsEmpty(dateiNamenListe2) Or IsEmpty(dateiPfadListe2) Then
+        MsgBox "Eines der Tabellenblätter enthält keine Daten.", vbCritical
+        Exit Sub
+    End If
+
+    ' Erstelle FileSystemObject
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    ' Vergleiche die Dateinamen
+    For i = LBound(dateiNamenListe1) To UBound(dateiNamenListe1)
+        dateiGefunden = False
+        For j = LBound(dateiNamenListe2) To UBound(dateiNamenListe2)
+            If dateiNamenListe1(i, 1) = dateiNamenListe2(j, 1) Then
+                ' Datei verschieben
+                If fso.FileExists(dateiPfadListe2(j, 1)) Then
+                    On Error Resume Next
+                    fso.MoveFile dateiPfadListe2(j, 1), zielOrdner & "\" & fso.GetFileName(dateiPfadListe2(j, 1))
+                    If Err.Number = 0 Then
+                        Debug.Print "Datei verschoben: " & dateiPfadListe2(j, 1)
+                    Else
+                        Debug.Print "Fehler beim Verschieben der Datei: " & dateiPfadListe2(j, 1) & " Fehler: " & Err.Description
+                        Err.Clear
+                    End If
+                    On Error GoTo 0
+                Else
+                    Debug.Print "Datei nicht gefunden: " & dateiPfadListe2(j, 1)
+                End If
+                dateiGefunden = True
+                Exit For
+            End If
+        Next j
+
+        ' Wenn Datei nicht gefunden, Zeile fett markieren
+        If Not dateiGefunden Then
+            With startZelle1.Offset(i - LBound(dateiNamenListe1), 0).EntireRow.Font
+                .Bold = True
+            End With
+            Debug.Print "Kein Match für: " & dateiNamenListe1(i, 1)
+        End If
+    Next i
+
+    MsgBox "Dateien wurden überprüft und ggf. verschoben.", vbInformation
+End Sub
+
+Function GetColumnData(startZelle As Range) As Variant
+    ' Funktion zum Laden der Daten aus einer Spalte in ein Array
+    Dim lastRow As Long
+    With startZelle.Worksheet
+        lastRow = .Cells(.Rows.Count, startZelle.Column).End(xlUp).Row
+        If lastRow < startZelle.Row Then
+            GetColumnData = Empty
+        Else
+            GetColumnData = .Range(startZelle, .Cells(lastRow, startZelle.Column)).Value
+        End If
+    End With
+End Function
+
+Function FolderPicker(ByRef ordnerPfad As String) As Boolean
+    ' Funktion zum Auswählen eines Zielordners
+    Dim fd As FileDialog
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    If fd.Show = -1 Then
+        ordnerPfad = fd.SelectedItems(1)
+        FolderPicker = True
+    Else
+        FolderPicker = False
+    End If
+End Function

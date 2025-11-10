@@ -1,0 +1,77 @@
+Sub ListFilesInFolder()
+    ' Variable declaration
+    Dim folderPath As String
+    Dim row As Long
+    Dim fileDialog As fileDialog
+
+    ' Initialize the FileDialog
+    Set fileDialog = Application.fileDialog(msoFileDialogFolderPicker)
+    
+    ' Prompt the user to select a folder
+    With fileDialog
+        .Title = "Select a Folder"
+        If .Show = -1 Then ' If the user has selected a folder
+            folderPath = .SelectedItems(1) & "\"
+        Else
+            Exit Sub ' Exit the macro if the user cancels the dialog
+        End If
+    End With
+
+    ' Start in row 2
+    row = 2
+    
+    ' Call the recursive function to list all files
+    ListFiles folderPath, row
+    
+    ' Inform the user that the operation is complete
+    MsgBox "All file names have been listed in column H.", vbInformation, "Operation Complete"
+End Sub
+
+Sub ListFiles(ByVal folderPath As String, ByRef row As Long)
+    Dim fileName As String
+    Dim subFolder As Object ' Declare subFolder as Object
+    Dim folder As Object
+    Dim subFolders As Object
+    Dim fso As Object
+    Dim fileType As String
+    Dim fileDate As Date
+
+    ' Initialize the FileSystemObject
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    ' Get the first file in the folder
+    fileName = Dir(folderPath & "*.*", vbNormal)
+
+    ' Loop through all files in the folder
+    Do While fileName <> ""
+        ' Write the file name (without path) to column H
+        Cells(row, 8).Value = fileName
+
+        ' Get the file type (extension) and write to column D
+        fileType = fso.GetExtensionName(fileName)
+        Cells(row, 4).Value = fileType
+
+        ' Write the full file path to column J
+        Cells(row, 10).Value = folderPath & fileName
+
+        ' Get the file's last modified date and write to column K
+        fileDate = fso.GetFile(folderPath & fileName).DateLastModified
+        Cells(row, 11).Value = fileDate
+
+        ' Move to the next row
+        row = row + 1
+
+        ' Get the next file
+        fileName = Dir
+    Loop
+
+    ' Get the subfolders in the folder
+    Set folder = fso.GetFolder(folderPath)
+    Set subFolders = folder.subFolders
+
+    ' Loop through each subfolder
+    For Each subFolder In subFolders
+        ' Recursively list files in the subfolder
+        ListFiles subFolder.Path & "\", row
+    Next subFolder
+End Sub

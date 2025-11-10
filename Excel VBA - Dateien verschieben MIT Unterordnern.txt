@@ -1,0 +1,100 @@
+Option Explicit
+
+Sub DateienVerschieben()
+    Dim ws As Worksheet
+    Dim quellOrdner As String, zielOrdner As String
+    Dim fso As Object
+    Dim fileDict As Object
+    Dim lastRow As Long
+    Dim i As Long
+    Dim fileName As String
+    
+    ' Blatt festlegen
+    Set ws = ThisWorkbook.Sheets("Tabelle1")  ' >> Anpassen, falls anders
+    
+    ' Ordner wählen
+    If Not FolderPicker(quellOrdner, "Wähle den Quellordner") Then Exit Sub
+    If Not FolderPicker(zielOrdner, "Wähle den Zielordner") Then Exit Sub
+    
+    ' Validität prüfen
+    If Dir(quellOrdner, vbDirectory) = "" Or Dir(zielOrdner, vbDirectory) = "" Then
+        MsgBox "Ungültiger Ordnerpfad!", vbCritical
+        Exit Sub
+    End If
+    
+    ' FileSystemObject und Dictionary aufsetzen
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set fileDict = CreateObject("Scripting.Dictionary")
+    
+    ' Alle Dateinamen aus Spalte H (ab H2) ins Dictionary packen
+    lastRow = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row
+    For i = 2 To lastRow
+        fileName = Trim(ws.Cells(i, "H").Value)
+        If Len(fileName) > 0 Then
+            ' Vermeidet Duplikate in der Liste selbst
+            If Not fileDict.Exists(fileName) Then
+                fileDict.Add fileName, True
+            End If
+        End If
+    Next i
+    
+    ' Performance-Tweak: Bildschirm aus, Berechnung manuell
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    
+    ' Dateien verschieben (inkl. Unterordner)
+    VerschiebeAusOrdner fso.GetFolder(quellOrdner), zielOrdner, fileDict
+    
+    ' Restore
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+    
+    MsgBox "? Done! Dateien wurden verschoben (sofern gefunden).", vbInformation
+End Sub
+
+Private Sub VerschiebeAusOrdner(ByVal ordner As Object, _
+                                ByVal zielOrdner As String, _
+                                ByVal fileDict As Object)
+    Dim datei As Object, subOrdner As Object
+    Dim quellPfad As String, zielPfad As String
+    
+    ' Jede Datei prüfen
+    For Each datei In ordner.Files
+        If fileDict.Exists(datei.Name) Then
+            quellPfad = datei.Path
+            zielPfad = zielOrdner & Application.PathSeparator & datei.Name
+            On Error Resume Next
+            Name quellPfad As zielPfad
+            If Err.Number <> 0 Then
+                Debug.Print "?? Fehler beim Verschieben von " & datei.Name & ": " & Err.Description
+                Err.Clear
+            Else
+                Debug.Print "?? Verschoben: " & datei.Name
+            End If
+            On Error GoTo 0
+        End If
+    Next datei
+    
+    ' Rekursion für Unterordner
+    For Each subOrdner In ordner.SubFolders
+        VerschiebeAusOrdner subOrdner, zielOrdner, fileDict
+    Next subOrdner
+End Sub
+
+Private Function FolderPicker(ByRef pfad As String, ByVal titel As String) As Boolean
+    Dim fd As FileDialog
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    With fd
+        .Title = titel
+        If .Show = -1 Then
+            pfad = .SelectedItems(1)
+            FolderPicker = True
+        Else
+            FolderPicker = False
+        End If
+    End With
+End Function
+
+
+
+

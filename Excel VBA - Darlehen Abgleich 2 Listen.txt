@@ -1,0 +1,53 @@
+Sub DatenAusAndererDateiKopieren()
+    Dim wbQuelle As Workbook
+    Dim wsQuelle As Worksheet
+    Dim wbZiel As Workbook
+    Dim wsZiel As Worksheet
+    Dim letzteZeileQuelle As Long
+    Dim letzteZeileZiel As Long
+    Dim rngQuelle As Range, rngZiel As Range
+    Dim zelle As Range
+    Dim suchWert As Variant
+    Dim fundstelle As Range
+    
+    ' Dateiauswahl für die Quelle
+    Dim quelleDatei As String
+    quelleDatei = Application.GetOpenFilename("Excel Dateien (*.xlsx; *.xlsm), *.xlsx; *.xlsm")
+    If quelleDatei = "False" Then Exit Sub ' Abbruch bei Abbruch der Auswahl
+    
+    ' Quelle öffnen
+    Set wbQuelle = Workbooks.Open(quelleDatei)
+    Set wsQuelle = wbQuelle.Sheets("Gesamtübersicht") ' Verwende das Blatt "Gesamtübersicht"
+    
+    ' Ziel setzen (aktive Datei)
+    Set wbZiel = ThisWorkbook
+    Set wsZiel = wbZiel.Sheets("Gesamtübersicht") ' Verwende das Blatt "Gesamtübersicht"
+    
+    ' Letzte Zeilen ermitteln
+    letzteZeileQuelle = wsQuelle.Cells(wsQuelle.Rows.Count, 3).End(xlUp).Row ' Spalte C in Quelle
+    letzteZeileZiel = wsZiel.Cells(wsZiel.Rows.Count, 3).End(xlUp).Row ' Spalte C in Ziel
+    
+    ' Durchlaufe alle Personalnummern in der Ziel-Datei
+    For Each zelle In wsZiel.Range("C9:C" & letzteZeileZiel)
+        suchWert = zelle.Value
+        If Not IsEmpty(suchWert) Then
+            ' Suche den Wert in der Quell-Datei
+            Set fundstelle = wsQuelle.Range("C9:C" & letzteZeileQuelle).Find(suchWert, LookAt:=xlWhole)
+            
+            ' Falls gefunden, Werte kopieren
+            If Not fundstelle Is Nothing Then
+                wsZiel.Cells(zelle.Row, 9).Value = wsQuelle.Cells(fundstelle.Row, 9).Value ' Spalte I
+                wsZiel.Cells(zelle.Row, 10).Value = wsQuelle.Cells(fundstelle.Row, 10).Value ' Spalte J
+                wsZiel.Cells(zelle.Row, 13).Value = wsQuelle.Cells(fundstelle.Row, 13).Value ' Spalte M
+                wsZiel.Cells(zelle.Row, 17).Value = wsQuelle.Cells(fundstelle.Row, 17).Value ' Spalte Q
+                wsZiel.Cells(zelle.Row, 18).Value = wsQuelle.Cells(fundstelle.Row, 18).Value ' Spalte R
+            End If
+        End If
+    Next zelle
+    
+    ' Quelle schließen, ohne zu speichern
+    wbQuelle.Close False
+    
+    MsgBox "Daten erfolgreich kopiert!", vbInformation
+End Sub
+

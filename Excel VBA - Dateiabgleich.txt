@@ -1,0 +1,40 @@
+Sub MarkMatchingFiles()
+    Dim ws As Worksheet
+    Dim cell As Range
+    Dim lastRow As Long
+    Dim fileName As String
+    Dim folderPath As String
+    Dim fso As Object
+    Dim file As Object
+
+    ' Set the worksheet
+    Set ws = ThisWorkbook.Sheets("Sheet1")
+
+    ' Set the folder path
+    With Application.FileDialog(msoFileDialogFolderPicker)
+        .Title = "Wählen Sie ein Verzeichnis"
+        If .Show = -1 Then
+            folderPath = .SelectedItems(1) & "\"
+        Else
+            MsgBox "Kein Verzeichnis ausgewählt", vbExclamation
+            Exit Sub
+        End If
+    End With
+
+    ' Set the range of filenames in column H
+    lastRow = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    ' Loop through each cell in column H
+    For Each cell In ws.Range("H2:H" & lastRow)
+        fileName = cell.Value
+        If fileName <> "" Then
+            ' Check if the file exists in the directory
+            If fso.FileExists(folderPath & fileName) Then
+                cell.Font.Bold = True
+            End If
+        End If
+    Next cell
+
+    MsgBox "Abgleich abgeschlossen", vbInformation
+End Sub

@@ -1,0 +1,60 @@
+Sub DateienUmbenennenUndVerschieben()
+    Dim fdSource As FileDialog
+    Dim fdTarget As FileDialog
+    Dim srcPath As String, destPath As String
+    Dim fso As Object
+    Dim srcFolder As Object
+    Dim fileItem As Object
+    Dim origFolderName As String
+    Dim newFileName As String
+    Dim fileColl As Collection
+    
+    ' Quellordner auswählen
+    Set fdSource = Application.FileDialog(msoFileDialogFolderPicker)
+    fdSource.Title = "Bitte Quellordner auswählen"
+    If fdSource.Show <> -1 Then Exit Sub
+    srcPath = fdSource.SelectedItems(1)
+    
+    ' Zielordner auswählen
+    Set fdTarget = Application.FileDialog(msoFileDialogFolderPicker)
+    fdTarget.Title = "Bitte Zielordner auswählen"
+    If fdTarget.Show <> -1 Then Exit Sub
+    destPath = fdTarget.SelectedItems(1)
+    
+    ' FileSystemObject erstellen und Quellordner festlegen
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set srcFolder = fso.GetFolder(srcPath)
+    origFolderName = srcFolder.Name
+    
+    ' Sammlung erstellen, um über alle Dateien zu iterieren
+    Set fileColl = New Collection
+    For Each fileItem In srcFolder.Files
+        fileColl.Add fileItem
+    Next fileItem
+    
+    ' Phase 1: Umbenennen der Dateien im Quellordner
+    For Each fileItem In fileColl
+        newFileName = origFolderName & "_" & fileItem.Name
+        ' Nur umbenennen, wenn der neue Name sich unterscheidet
+        If fileItem.Name <> newFileName Then
+            ' Datei im selben Ordner umbenennen
+            Name fileItem.Path As fso.BuildPath(srcPath, newFileName)
+        End If
+    Next fileItem
+    
+    ' Neue Sammlung, da sich die Dateinamen geändert haben
+    Set fileColl = New Collection
+    For Each fileItem In srcFolder.Files
+        fileColl.Add fileItem
+    Next fileItem
+    
+    ' Phase 2: Verschieben der umbenannten Dateien in den Zielordner
+    For Each fileItem In fileColl
+        fso.MoveFile Source:=fileItem.Path, _
+                     Destination:=fso.BuildPath(destPath, fso.GetFileName(fileItem.Path))
+    Next fileItem
+    
+    MsgBox "Dateien wurden erfolgreich umbenannt und verschoben!"
+End Sub
+
+

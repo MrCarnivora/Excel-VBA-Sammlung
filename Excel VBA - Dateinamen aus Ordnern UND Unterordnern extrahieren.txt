@@ -1,0 +1,147 @@
+Option Explicit
+
+' Robustere Version des Dateilisten-Makros:
+' - Retry-Logik bei GetFolder
+' - Prüft FolderExists
+' - Fehler werden protokolliert (Spalte M)
+' - Schreibt in das aktive Arbeitsblatt (startet in H2)
+' - Geeignet für OneDrive-lokale Pfade; wenn Pfad ein https://-URL ist, funktioniert FSO nicht
+
+Sub ListFilesInFolder()
+    Dim folderPath As String
+    Dim row As Long
+    Dim fd As FileDialog
+    Dim outputWS As Worksheet
+
+    ' Ausgabe-Worksheet: aktives Blatt beim Start
+    Set outputWS = ActiveSheet
+
+    ' Folderpicker initialisieren
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    With fd
+        .Title = "Select a Folder (lokaler OneDrive/UNC-Pfad, kein https:// URL)"
+        .AllowMultiSelect = False
+        If .Show = -1 Then
+            folderPath = .SelectedItems(1)
+        Else
+            Exit Sub
+        End If
+    End With
+
+    ' Normalisiere Pfad (kein abschließender Backslash)
+    If Right(folderPath, 1) = "\" Or Right(folderPath, 1) = "/" Then
+        folderPath = Left(folderPath, Len(folderPath) - 1)
+    End If
+
+    ' Startzeile: H2 -> Spalte 8, Zeile 2
+    row = 2
+
+    ' Header schreiben (optional)
+    With outputWS
+        .Cells(1, 8).Value = "Dateiname"
+        .Cells(1, 4).Value = "Extension"
+        .Cells(1, 10).Value = "Voller Pfad"
+        .Cells(1, 13).Value = "Fehler (falls vorhanden)"
+    End With
+
+    ' Rekursive Auflistung starten
+    RecursiveList folderPath, row, outputWS
+
+    MsgBox "Fertig. Dateien gelistet: " & (row - 2) & vbCrLf & _
+           "Fehler (falls vorhanden) in Spalte M.", vbInformation, "Operation Complete"
+End Sub
+
+' RecursiveList: robustere FSO-Variante mit FolderExists + Retry + Fehlerprotokoll
+Sub RecursiveList(ByVal folderPath As String, ByRef row As Long, ByRef outputWS As Worksheet)
+    Dim fso As Object
+    Dim folder As Object
+    Dim subFolder As Object
+    Dim fileItem As Object
+    Dim fileExt As String
+    Dim tryCount As Long
+    Dim gotFolder As Boolean
+    Dim sanitizedPath As String
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    ' FolderExists funktioniert nicht mit https:// URLs — dann direkt loggen und return
+    If LCase(Left(folderPath, 8)) = "https://" Or LCase(Left(folderPath, 7)) = "http://" Then
+        outputWS.Cells(row, 13).Value = "Pfad ist eine URL (http/https) - kann nicht mit FSO gelesen werden: " & folderPath
+        row = row + 1
+        Exit Sub
+    End If
+
+    ' Entferne letzten Backslash, falls vorhanden (FolderExists bevorzugt ohne abschließenden \)
+    sanitizedPath = folderPath
+    If Right(sanitizedPath, 1) = "\" Or Right(sanitizedPath, 1) = "/" Then
+        sanitizedPath = Left(sanitizedPath, Len(sanitizedPath) - 1)
+    End If
+
+    ' Prüfe Existenz (lokal/UNC). Wenn nicht existent, loggen und return.
+    On Error Resume Next
+    If Not fso.FolderExists(sanitizedPath) Then
+        outputWS.Cells(row, 13).Value = "Ordner nicht gefunden (FolderExists=false): " & sanitizedPath
+        row = row + 1
+        On Error GoTo 0
+        Exit Sub
+    End If
+    On Error GoTo 0
+
+    ' Versuch GetFolder mit Retry (z. B. bei Netzschwankungen)
+    gotFolder = False
+    For tryCount = 1 To 3
+        On Error Resume Next
+        Set folder = fso.GetFolder(sanitizedPath)
+        If Err.Number = 0 Then
+            gotFolder = True
+            On Error GoTo 0
+            Exit For
+        Else
+            ' Warte kurz und versuche erneut
+            Err.Clear
+            DoEvents
+            Application.Wait Now + TimeValue("0:00:01") ' 1 Sekunde
+        End If
+        On Error GoTo 0
+    Next tryCount
+
+    If Not gotFolder Then
+        outputWS.Cells(row, 13).Value = "GetFolder fehlgeschlagen nach Retries: " & sanitizedPath
+        row = row + 1
+        Exit Sub
+    End If
+
+    ' Dateien im aktuellen Ordner bearbeiten
+    On Error Resume Next
+    For Each fileItem In folder.Files
+        ' Schreibe in Ausgabe-Worksheet (explizit referenziert)
+        outputWS.Cells(row, 8).Value = fileItem.Name                      ' Spalte H
+        outputWS.Cells(row, 4).Value = fso.GetExtensionName(fileItem.Name) ' Spalte D
+        outputWS.Cells(row, 10).Value = fileItem.Path                     ' Spalte J
+        row = row + 1
+    Next fileItem
+    If Err.Number <> 0 Then
+        ' Falls Fehler beim Durchlaufen der Files auftritt, loggen
+        outputWS.Cells(row, 13).Value = "Fehler beim Auflisten der Dateien in: " & sanitizedPath & " -- Err: " & Err.Number & " " & Err.Description
+        row = row + 1
+        Err.Clear
+    End If
+    On Error GoTo 0
+
+    ' Subfolders: rekursiv (mit Fehlerabfang)
+    For Each subFolder In folder.SubFolders
+        ' Optional: Skip OneDrive/SharePoint-Cache-Ordner, wenn bekannt (Beispiel)
+        ' If InStr(1, subFolder.Path, "OneDrive Temp", vbTextCompare) > 0 Then GoTo SkipFolder
+
+        ' rekursive Aufruf in Schutzblöcken
+        On Error Resume Next
+        RecursiveList subFolder.Path, row, outputWS
+        If Err.Number <> 0 Then
+            outputWS.Cells(row, 13).Value = "Fehler in Subfolder: " & subFolder.Path & " -- Err: " & Err.Number & " " & Err.Description
+            row = row + 1
+            Err.Clear
+        End If
+        On Error GoTo 0
+SkipFolder:
+    Next subFolder
+End Sub

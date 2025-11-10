@@ -1,0 +1,41 @@
+Sub ListFilesInFolder()
+
+    ' Variable declaration
+    Dim folderPath As String
+    Dim fileName As String
+    Dim row As Long
+    Dim fileDialog As fileDialog
+
+    ' Initialize the FileDialog
+    Set fileDialog = Application.fileDialog(msoFileDialogFolderPicker)
+    
+    ' Prompt the user to select a folder
+    With fileDialog
+        .Title = "Select a Folder"
+        If .Show = -1 Then ' If the user has selected a folder
+            folderPath = .SelectedItems(1) & "\"
+        Else
+            Exit Sub ' Exit the macro if the user cancels the dialog
+        End If
+    End With
+
+    ' Start in row 2
+    row = 2
+    
+    ' Get the first file in the folder
+    fileName = Dir(folderPath)
+    
+    ' Loop through all files in the folder
+    Do While fileName <> ""
+        ' Write the file name to column H
+        Cells(row, 8).Value = fileName
+        ' Move to the next row
+        row = row + 1
+        ' Get the next file
+        fileName = Dir
+    Loop
+    
+    ' Inform the user that the operation is complete
+    MsgBox "All file names have been listed in column H.", vbInformation, "Operation Complete"
+
+End Sub
